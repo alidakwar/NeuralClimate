@@ -1,5 +1,5 @@
 import requests
-import ghcnd_parse as ghcnd_parse
+import machine_learning.ghcnd_parse as ghcnd_parse
 import csv
 import os
 import pandas as pd

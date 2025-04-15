@@ -6,9 +6,9 @@ import os
 import requests
 
 # Import backend modules
-import ghcnd_fetch as fetch
-import ghcnd_parse
-
+import machine_learning.ghcnd_fetch as fetch
+import machine_learning.ghcnd_parse
+import machine_learning.time_series as time_series
 # Set up the page configuration
 st.set_page_config(page_title="NeuralClimate", layout="wide", initial_sidebar_state="expanded")
 
@@ -74,6 +74,10 @@ def get_inventory_data():
         response.raise_for_status()
         raw_data = response.text
         df_inventory = wrap_parser_with_tempfile(raw_data, fetch.ghcnd_parse.parse_inventory_file)
+        # Filter by 5 main elements (TMAX, TMIN, PRCP, SNOW, SNWD)
+        # TODO: filter this by the selected state and forecast type
+        df_inventory = df_inventory[df_inventory['element'].isin(['TMAX', 'TMIN', 'PRCP', 'SNOW', 'SNWD'])]
+
         return df_inventory
     except Exception as e:
         st.error(f"Error fetching inventory data: {e}")
@@ -131,8 +135,55 @@ else:
     selected_state = None
     selected_state_code = None
 
-forecast_type = st.sidebar.radio("Forecast Type", ("Temperature", "Flood Risk", "CO2 Levels", "Combined"))
+# TODO: update this to use 5 main elements
+forecast_type = st.sidebar.radio(
+    "Forecast Type",
+    (
+        "Maximum Temperature (TMAX)",
+        "Minimum Temperature (TMIN)",
+        "Precipitation (PRCP)",
+        "Snowfall (SNOW)",
+        "Snow Depth (SNWD)",
+    ),
+)
 
+
+# # Display a map of stations from the inventory data
+# st.markdown("### Station Map")
+
+# # Load inventory data
+# df_inventory = get_inventory_data()
+# if df_inventory is not None and not df_inventory.empty:
+#     # Ensure latitude and longitude columns are present
+#     if "latitude" in df_inventory.columns and "longitude" in df_inventory.columns:
+#         # Map forecast type to colors
+#         color_map = {
+#             "TMAX": "red",
+#             "TMIN": "blue",
+#             "PRCP": "green",
+#             "SNOW": "purple",
+#             "SNWD": "orange",
+#         }
+#         df_inventory["color"] = df_inventory["element"].map(color_map)
+
+#         # Display map
+#         st.map(df_inventory[["latitude", "longitude"]])
+
+#         # Add legend
+#         st.markdown("#### Legend")
+#         for element, color in color_map.items():
+#             st.markdown(f"<span style='color:{color};'>⬤</span> {element}", unsafe_allow_html=True)
+
+#         # Allow station selection by clicking
+#         selected_station = st.selectbox(
+#             "Select a Station by ID",
+#             df_inventory["id"].unique(),
+#             format_func=lambda x: f"{x} ({df_inventory[df_inventory['id'] == x]['element'].iloc[0]})"
+#         )
+#     else:
+#         st.error("Inventory data is missing latitude or longitude columns.")
+# else:
+#     st.error("Failed to load inventory data.")
 ########################################
 # Display Backend Data
 
@@ -207,32 +258,50 @@ else:
 
 ########################################
 # Forecast Simulation Section
+st.markdown("### Visualize Station Data")
 
-st.markdown("### Future Projections")
-years = np.arange(2020, 2020 + time_period)
-if forecast_type == "Temperature":
-    data = np.linspace(15, 15 + 0.03 * time_period, time_period) + np.random.normal(0, 0.5, time_period)
-    y_label = "Temperature (°C)"
-elif forecast_type == "Flood Risk":
-    data = np.linspace(1, 1 + 0.05 * time_period, time_period) + np.random.normal(0, 0.1, time_period)
-    y_label = "Flood Risk Score"
-elif forecast_type == "CO2 Levels":
-    data = np.linspace(400, 400 + 2 * time_period, time_period) + np.random.normal(0, 5, time_period)
-    y_label = "CO2 (ppm)"
+if df_stations is not None and not df_stations.empty:
+    if selected_station:
+        station_id = selected_station.split(" - ")[0].strip()
+        df_station = get_station_data(station_id)
+        if df_station is not None and not df_station.empty:
+            # Filter data for visualization
+            df_station = df_station[df_station['element'] == 'TMAX']
+            cleaned_df_station = time_series.clean_data(df_station)
+            st.line_chart(cleaned_df_station, y='value', use_container_width=True)
+        else:
+            st.error("Failed to fetch or process station data.")
+    else:
+        st.error("Please select a station to visualize data.")
 else:
-    data = np.linspace(15, 15 + 0.03 * time_period, time_period) + np.random.normal(0, 0.5, time_period)
-    y_label = "Combined Metric"
+    st.error("No stations data available.")
 
-chart_data = pd.DataFrame({"Year": years, y_label: data}).set_index("Year")
-chart_data.index = chart_data.index.astype(str)
-st.line_chart(chart_data)
+
+# Generate predictions for the next 12 months using the time series model
+if df_station is not None and not df_station.empty:
+    try:
+        # Clean and prepare the data for the time series model
+        cleaned_df_station = time_series.clean_data(df_station)
+        predictions = time_series.predict_time_series(cleaned_df_station)
+
+        # Create a DataFrame for the predictions
+        prediction_months = pd.date_range(start=cleaned_df_station.index[-1], periods=12, freq='M')
+        prediction_df = pd.DataFrame({"Month": prediction_months, "Predicted Value": predictions}).set_index("Month")
+
+        # Plot the predictions
+        st.markdown("### Predictions for the Next 12 Months")
+        st.line_chart(prediction_df, use_container_width=True)
+    except Exception as e:
+        st.error(f"Error generating predictions: {e}")
+else:
+    st.error("No station data available for predictions.")
 
 
 # Experimental feature meant to compare actual values with our predicted values, not completed yet!
 # Compute dynamic Average Temperature from the selected station's data (TMAX)
-#avg_temp = "N/A"  # Default value in case data is missing
-#if df_station is not None and not df_station.empty:
-    # Filter data for TMAX measurements
+# avg_temp = "N/A"  # Default value in case data is missing
+# if df_station is not None and not df_station.empty:
+# Filter data for TMAX measurements
 #    temp_data = df_station[df_station['element'] == 'TMAX']
 #    if not temp_data.empty:
 #        # Choose the most recent year available
@@ -242,30 +311,30 @@ st.line_chart(chart_data)
 #        avg_temp_value = recent_temp_data['value'].mean() / 10
 #        avg_temp = round(avg_temp_value, 2)
 
-#st.markdown("## Regional Climate Analysis")
-#st.markdown(f"Analysis based on selected station: {selected_station}")
-#results = pd.DataFrame({
+# st.markdown("## Regional Climate Analysis")
+# st.markdown(f"Analysis based on selected station: {selected_station}")
+# results = pd.DataFrame({
 #    "Metric": ["Average Temperature", "Flood Risk", "CO2 Levels"],
 #    "Current": [avg_temp, 1.2, 410],
 #    "Predicted": [
-#        chart_data[y_label].iloc[-1] if forecast_type in ["Temperature", "Combined"] else 16, 
-#        chart_data[y_label].iloc[-1] if forecast_type == "Flood Risk" else 1.5, 
+#        chart_data[y_label].iloc[-1] if forecast_type in ["Temperature", "Combined"] else 16,
+#        chart_data[y_label].iloc[-1] if forecast_type == "Flood Risk" else 1.5,
 #        chart_data[y_label].iloc[-1] if forecast_type == "CO2 Levels" else 420
 #    ]
-#})
-#st.table(results)
+# })
+# st.table(results)
 
-st.markdown("### Future Projection Comparison")
-if forecast_type == "Combined":
-    metrics = ["Temperature", "Flood Risk", "CO2 Levels"]
-    projections = [chart_data[y_label].iloc[-1] + np.random.uniform(-1, 1) for _ in metrics]
-    comparison_df = pd.DataFrame({
-        "Metric": metrics,
-        "Projection": projections
-    }).set_index("Metric")
-    st.bar_chart(comparison_df)
-else:
-    st.markdown("Select 'Combined' forecast type in the sidebar to see a multi-metric comparison chart.")
+# st.markdown("### Future Projection Comparison")
+# if forecast_type == "Combined":
+#     metrics = ["Temperature", "Flood Risk", "CO2 Levels"]
+#     projections = [chart_data[y_label].iloc[-1] + np.random.uniform(-1, 1) for _ in metrics]
+#     comparison_df = pd.DataFrame({
+#         "Metric": metrics,
+#         "Projection": projections
+#     }).set_index("Metric")
+#     st.bar_chart(comparison_df)
+# else:
+#     st.markdown("Select 'Combined' forecast type in the sidebar to see a multi-metric comparison chart.")
 
 st.markdown("### About NeuralClimate")
 st.markdown("""
