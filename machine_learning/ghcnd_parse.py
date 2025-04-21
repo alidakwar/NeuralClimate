@@ -1,4 +1,5 @@
 import pandas as pd
+from io import StringIO
 
 
 def parse_countries_file(input_path):
@@ -6,16 +7,25 @@ def parse_countries_file(input_path):
     Parse the GHCND countries file and convert it to a pandas DataFrame.
 
     Args:
-        input_path (str): Path to the input ghcnd-countries.txt file
+        input_path (str or StringIO): Path to the input ghcnd-countries.txt file or a StringIO object
 
     Returns:
         pd.DataFrame: A DataFrame containing the parsed countries data
     """
     countries_data = []
 
-    # Read and parse the input file
-    with open(input_path, "r", encoding="utf-8") as f:
-        for line in f:
+    # Handle both file paths and StringIO objects
+    if isinstance(input_path, str):
+        # Read and parse the input file
+        with open(input_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():  # Skip empty lines
+                    code = line[0:2].strip()
+                    name = line[3:].strip()
+                    countries_data.append([code, name])
+    else:
+        # Handle StringIO object
+        for line in input_path:
             if line.strip():  # Skip empty lines
                 code = line[0:2].strip()
                 name = line[3:].strip()
@@ -31,16 +41,33 @@ def parse_inventory_file(input_path):
     Parse the GHCND inventory file and convert it to a pandas DataFrame.
 
     Args:
-        input_path (str): Path to the input ghcnd-inventory.txt file
+        input_path (str or StringIO): Path to the input ghcnd-inventory.txt file or a StringIO object
 
     Returns:
         pd.DataFrame: A DataFrame containing the parsed inventory data
     """
     inventory_data = []
 
-    # Read and parse the input file
-    with open(input_path, "r", encoding="utf-8") as f:
-        for line in f:
+    # Handle both file paths and StringIO objects
+    if isinstance(input_path, str):
+        # Read and parse the input file
+        with open(input_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():  # Skip empty lines
+                    # Parse fixed-width fields
+                    station_id = line[0:11].strip()
+                    latitude = float(line[12:20].strip())
+                    longitude = float(line[21:30].strip())
+                    element = line[31:35].strip()
+                    first_year = int(line[36:40].strip())
+                    last_year = int(line[41:45].strip())
+
+                    inventory_data.append(
+                        [station_id, latitude, longitude, element, first_year, last_year]
+                    )
+    else:
+        # Handle StringIO object
+        for line in input_path:
             if line.strip():  # Skip empty lines
                 # Parse fixed-width fields
                 station_id = line[0:11].strip()
@@ -68,16 +95,25 @@ def parse_states_file(input_path):
     Parse the GHCND states file and convert it to a pandas DataFrame.
 
     Args:
-        input_path (str): Path to the input ghcnd-states.txt file
+        input_path (str or StringIO): Path to the input ghcnd-states.txt file or a StringIO object
 
     Returns:
         pd.DataFrame: A DataFrame containing the parsed states data
     """
     states_data = []
 
-    # Read and parse the input file
-    with open(input_path, "r", encoding="utf-8") as f:
-        for line in f:
+    # Handle both file paths and StringIO objects
+    if isinstance(input_path, str):
+        # Read and parse the input file
+        with open(input_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():  # Skip empty lines
+                    code = line[0:2].strip()
+                    name = line[3:].strip()
+                    states_data.append([code, name])
+    else:
+        # Handle StringIO object
+        for line in input_path:
             if line.strip():  # Skip empty lines
                 code = line[0:2].strip()
                 name = line[3:].strip()

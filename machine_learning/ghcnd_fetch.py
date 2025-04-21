@@ -12,7 +12,9 @@ def get_ghcnd_countries():
     response = requests.get(url)
     if response.status_code == 200:
         data = response.text
-        df = ghcnd_parse.parse_countries_file(data)
+        # Create a StringIO object to simulate a file
+        data_io = StringIO(data)
+        df = ghcnd_parse.parse_countries_file(data_io)
         return df
     else:
         raise Exception(
@@ -26,7 +28,9 @@ def get_ghcnd_inventory():
     response = requests.get(url)
     if response.status_code == 200:
         data = response.text
-        df = ghcnd_parse.parse_inventory_file(data)
+        # Create a StringIO object to simulate a file
+        data_io = StringIO(data)
+        df = ghcnd_parse.parse_inventory_file(data_io)
         return df
     else:
         raise Exception(
@@ -40,7 +44,9 @@ def get_ghcnd_states():
     response = requests.get(url)
     if response.status_code == 200:
         data = response.text
-        df = ghcnd_parse.parse_states_file(data)
+        # Create a StringIO object to simulate a file
+        data_io = StringIO(data)
+        df = ghcnd_parse.parse_states_file(data_io)
         return df
     else:
         raise Exception(
