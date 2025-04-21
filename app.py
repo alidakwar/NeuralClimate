@@ -23,7 +23,15 @@ def get_available_elements(df_station):
     element_map = {
         "TMAX": "Maximum Temperature (TMAX)",
         "TMIN": "Minimum Temperature (TMIN)",
-        "PRCP": "Precipitation (PRCP)"
+        "PRCP": "Precipitation (PRCP)",
+        "SNOW": "Snowfall (SNOW)",
+        "SNWD": "Snow Depth (SNWD)",
+        "AWND": "Average Wind Speed (AWND)",
+        "PGTM": "Peak Gust Time (PGTM)",
+        "PSUN": "Percent of Possible Sunshine (PSUN)",
+        "TSUN": "Total Sunshine (TSUN)",
+        "WESD": "Water Equivalent of Snow on Ground (WESD)",
+        "WESF": "Water Equivalent of Snowfall (WESF)"
     }
     
     # Filter to only include the main elements we want
@@ -165,7 +173,15 @@ with tab1:
         element_map = {
             "Maximum Temperature (TMAX)": "TMAX",
             "Minimum Temperature (TMIN)": "TMIN",
-            "Precipitation (PRCP)": "PRCP"
+            "Precipitation (PRCP)": "PRCP",
+            "Snowfall (SNOW)": "SNOW",
+            "Snow Depth (SNWD)": "SNWD",
+            "Average Wind Speed (AWND)": "AWND",
+            "Peak Gust Time (PGTM)": "PGTM",
+            "Percent of Possible Sunshine (PSUN)": "PSUN",
+            "Total Sunshine (TSUN)": "TSUN",
+            "Water Equivalent of Snow on Ground (WESD)": "WESD",
+            "Water Equivalent of Snowfall (WESF)": "WESF"
         }
 
         selected_element = element_map.get(forecast_type, "TMAX")
@@ -188,7 +204,7 @@ with tab1:
         chart_data = cleaned_df_station.copy()
         
         # Customize chart based on forecast type
-        if selected_element == "TMAX" or selected_element == "TMIN":
+        if selected_element in ["TMAX", "TMIN"]:
             # Temperature charts (in tenths of degrees Celsius)
             # Convert to actual temperature values for better readability
             chart_data['value'] = chart_data['value'] / 10.0
@@ -202,6 +218,12 @@ with tab1:
             # Convert to millimeters for better readability
             chart_data['value'] = chart_data['value'] / 10.0
             y_axis_label = "Precipitation (mm)"
+            y_axis_range = [0, chart_data['value'].max() * 1.2]
+        elif selected_element == "SNOW":
+            # Snowfall (in tenths of millimeters)
+            # Convert to millimeters for better readability
+            chart_data['value'] = chart_data['value'] / 10.0
+            y_axis_label = "Snowfall (mm)"
             y_axis_range = [0, chart_data['value'].max() * 1.2]
         else:
             # Default case
@@ -259,6 +281,12 @@ with tab1:
                     f"{chart_data['value'].mean():.1f} mm",
                     f"{chart_data['value'].mean() - chart_data['value'].iloc[0]:.1f} mm"
                 )
+            elif selected_element == "SNOW":
+                st.metric(
+                    f"Average {selected_element}",
+                    f"{chart_data['value'].mean():.1f} mm",
+                    f"{chart_data['value'].mean() - chart_data['value'].iloc[0]:.1f} mm"
+                )
             else:
                 st.metric(
                     f"Average {selected_element}",
@@ -274,6 +302,12 @@ with tab1:
                     f"{chart_data['value'].max() - chart_data['value'].mean():.1f}°C"
                 )
             elif selected_element == "PRCP":
+                st.metric(
+                    f"Maximum {selected_element}",
+                    f"{chart_data['value'].max():.1f} mm",
+                    f"{chart_data['value'].max() - chart_data['value'].mean():.1f} mm"
+                )
+            elif selected_element == "SNOW":
                 st.metric(
                     f"Maximum {selected_element}",
                     f"{chart_data['value'].max():.1f} mm",
@@ -299,6 +333,12 @@ with tab1:
                     f"{chart_data['value'].min():.1f} mm",
                     f"{chart_data['value'].min() - chart_data['value'].mean():.1f} mm"
                 )
+            elif selected_element == "SNOW":
+                st.metric(
+                    f"Minimum {selected_element}",
+                    f"{chart_data['value'].min():.1f} mm",
+                    f"{chart_data['value'].min() - chart_data['value'].mean():.1f} mm"
+                )
             else:
                 st.metric(
                     f"Minimum {selected_element}",
@@ -318,6 +358,8 @@ with tab1:
                 if selected_element in ["TMAX", "TMIN"]:
                     predictions = predictions / 10.0
                 elif selected_element == "PRCP":
+                    predictions = predictions / 10.0
+                elif selected_element == "SNOW":
                     predictions = predictions / 10.0
                 
                 st.subheader(f"Predictions for {selected_element} (Next {time_period} Years)")
@@ -376,6 +418,12 @@ with tab1:
                             f"{predictions.mean():.1f} mm",
                             f"{predictions.mean() - chart_data['value'].mean():.1f} mm"
                         )
+                    elif selected_element == "SNOW":
+                        st.metric(
+                            "Predicted Average",
+                            f"{predictions.mean():.1f} mm",
+                            f"{predictions.mean() - chart_data['value'].mean():.1f} mm"
+                        )
                     else:
                         st.metric(
                             "Predicted Average",
@@ -391,6 +439,12 @@ with tab1:
                             "Total Change"
                         )
                     elif selected_element == "PRCP":
+                        st.metric(
+                            "Predicted Change",
+                            f"{predictions.iloc[-1] - predictions.iloc[0]:.1f} mm",
+                            "Total Change"
+                        )
+                    elif selected_element == "SNOW":
                         st.metric(
                             "Predicted Change",
                             f"{predictions.iloc[-1] - predictions.iloc[0]:.1f} mm",
