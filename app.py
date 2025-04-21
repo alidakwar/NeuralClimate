@@ -4,341 +4,452 @@ import numpy as np
 import tempfile
 import os
 import requests
+from datetime import datetime, timedelta
 
 # Import backend modules
 import machine_learning.ghcnd_fetch as fetch
 import machine_learning.ghcnd_parse
 import machine_learning.time_series as time_series
+
+def get_available_elements(df_station):
+    """Get available forecast types for the station."""
+    if df_station is None or df_station.empty:
+        return []
+    
+    # Get unique elements from the dataframe
+    available_elements = df_station['element'].unique()
+    
+    # Map element codes to display names
+    element_map = {
+        "TMAX": "Maximum Temperature (TMAX)",
+        "TMIN": "Minimum Temperature (TMIN)",
+        "PRCP": "Precipitation (PRCP)"
+    }
+    
+    # Filter to only include the main elements we want
+    filtered_elements = [elem for elem in available_elements if elem in element_map]
+    
+    # Convert element codes to display names
+    display_elements = [element_map.get(elem, elem) for elem in filtered_elements]
+    
+    return display_elements
+
 # Set up the page configuration
-st.set_page_config(page_title="NeuralClimate", layout="wide", initial_sidebar_state="expanded")
-
-# Custom CSS for basic styling
-st.markdown(
-    """
-    <style>
-    .main {
-        background-color: #f5f5f5;
-    }
-    .big-font {
-        font-size:20px;
-    }
-    .header {
-        font-size:30px;
-        font-weight: bold;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
+st.set_page_config(
+    page_title="NeuralClimate",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# Main Title and Introduction
-st.title("NeuralClimate")
-st.subheader("Climate Change Analysis and Forecasting")
-st.markdown("""
-NeuralClimate delivers climate data analysis by directly integrating backend functions.
-This version uses real data from NOAA datasets and displays all processed data, with location selection based on U.S. states.
-""")
+# Create tabs for main content
+tab1, tab2 = st.tabs(["Weather Predictions", "About"])
 
-########################################
-# Utility Functions
+with tab1:
+    # Initialize session state
+    if 'current_station' not in st.session_state:
+        st.session_state.current_station = None
+    if 'current_data' not in st.session_state:
+        st.session_state.current_data = None
+    if 'error_message' not in st.session_state:
+        st.session_state.error_message = None
+    if 'available_elements' not in st.session_state:
+        st.session_state.available_elements = []
 
-def wrap_parser_with_tempfile(raw_data, parser_func):
-    """
-    Writes raw text data to a temporary file, calls the parser, then deletes the file.
-    """
-    try:
-        with tempfile.NamedTemporaryFile(mode='w+', delete=False, encoding="utf-8") as tmp:
-            tmp.write(raw_data)
-            tmp_path = tmp.name
-        df = parser_func(tmp_path)
-        os.unlink(tmp_path)
-        return df
-    except Exception as e:
-        st.error(f"Error processing data: {e}")
-        return None
+    # Main title
+    st.title("NeuralClimate - Weather Predictions")
 
-def get_countries_data():
-    try:
-        response = requests.get("https://www.ncei.noaa.gov/pub/data/ghcn/daily/ghcnd-countries.txt")
-        response.raise_for_status()
-        raw_data = response.text
-        df_countries = wrap_parser_with_tempfile(raw_data, fetch.ghcnd_parse.parse_countries_file)
-        return df_countries
-    except Exception as e:
-        st.error(f"Error fetching countries data: {e}")
-        return None
+    # Sidebar Configuration
+    with st.sidebar:
+        st.header("Configuration")
 
-def get_inventory_data():
-    try:
-        response = requests.get("https://www.ncei.noaa.gov/pub/data/ghcn/daily/ghcnd-inventory.txt")
-        response.raise_for_status()
-        raw_data = response.text
-        df_inventory = wrap_parser_with_tempfile(raw_data, fetch.ghcnd_parse.parse_inventory_file)
-        # Filter by 5 main elements (TMAX, TMIN, PRCP, SNOW, SNWD)
-        # TODO: filter this by the selected state and forecast type
-        df_inventory = df_inventory[df_inventory['element'].isin(['TMAX', 'TMIN', 'PRCP', 'SNOW', 'SNWD'])]
+        # Time period selection
+        time_period = st.slider(
+            "Select Time Period (Years from now)",
+            min_value=1,
+            max_value=100,
+            value=10
+        )
 
-        return df_inventory
-    except Exception as e:
-        st.error(f"Error fetching inventory data: {e}")
-        return None
+        # Load states data with caching
+        @st.cache_data(show_spinner=False)
+        def load_states():
+            try:
+                return fetch.get_ghcnd_states()
+            except Exception as e:
+                st.error(f"Error loading states data: {str(e)}")
+                return None
 
-def get_states_data():
-    try:
-        response = requests.get("https://www.ncei.noaa.gov/pub/data/ghcn/daily/ghcnd-states.txt")
-        response.raise_for_status()
-        raw_data = response.text
-        df_states = wrap_parser_with_tempfile(raw_data, fetch.ghcnd_parse.parse_states_file)
-        return df_states
-    except Exception as e:
-        st.error(f"Error fetching states data: {e}")
-        return None
+        # Load stations data with caching
+        @st.cache_data(show_spinner=False)
+        def load_stations(state_code=None):
+            try:
+                df_stations = fetch.get_ghcnd_stations()
+                if state_code and df_stations is not None:
+                    return df_stations[df_stations["STATE"] == state_code]
+                return df_stations
+            except Exception as e:
+                st.error(f"Error loading stations data: {str(e)}")
+                return None
 
-def get_stations_data():
-    try:
-        df_stations = fetch.get_ghcnd_stations()
-        return df_stations
-    except Exception as e:
-        st.error(f"Error fetching stations data: {e}")
-        return None
+        # Load station data with caching
+        @st.cache_data(show_spinner=False)
+        def load_station_data(station_id):
+            try:
+                return fetch.get_ghcnd_data_by_station(station_id)
+            except Exception as e:
+                st.error(f"Error loading station data: {str(e)}")
+                return None
 
-def get_station_data(station_id):
-    try:
-        df_station = fetch.get_ghcnd_data_by_station(station_id)
-        return df_station
-    except Exception as e:
-        st.error(f"Error fetching data for station {station_id}: {e}")
-        return None
+        # State selection
+        states_df = load_states()
+        if states_df is None or states_df.empty:
+            st.error("Failed to load states data. Please try again.")
+            st.stop()
 
-########################################
-# Sidebar Configuration
+        state_map = {row["state_name"]: row["state_code"] for _, row in states_df.iterrows()}
+        state_names = list(state_map.keys())
+        default_index = state_names.index("Texas") if "Texas" in state_names else 0
+        selected_state = st.selectbox("Select U.S. State", state_names, index=default_index)
+        selected_state_code = state_map[selected_state]
 
-st.sidebar.header("Configuration Options")
-time_period = st.sidebar.slider("Select Time Period (Years from now)", min_value=1, max_value=100, value=10)
+        # Station selection
+        df_stations = load_stations(selected_state_code)
+        if df_stations is None or df_stations.empty:
+            st.error(f"No stations found for state: {selected_state}")
+            st.stop()
 
-# Load states data (use caching if desired)
-@st.cache_data(show_spinner=False)
-def load_states():
-    return get_states_data()
+        station_options = df_stations.apply(
+            lambda row: f"{row['ID']} - {row['NAME']} ({row['STATE']})",
+            axis=1
+        ).tolist()
 
-states_df = load_states()
-if states_df is not None and not states_df.empty:
-    # Build a mapping between state name and state code
-    state_map = {row["state_name"]: row["state_code"] for _, row in states_df.iterrows()}
-    state_names = list(state_map.keys())
-    # Default to Texas if available
-    default_index = state_names.index("Texas") if "Texas" in state_names else 0
-    selected_state = st.sidebar.selectbox("Select U.S. State", state_names, index=default_index)
-    selected_state_code = state_map[selected_state]
-else:
-    st.sidebar.error("Failed to load states data.")
-    selected_state = None
-    selected_state_code = None
+        selected_station = st.selectbox(
+            "Select a Station",
+            station_options,
+            key="station_select"
+        )
 
-# TODO: update this to use 5 main elements
-forecast_type = st.sidebar.radio(
-    "Forecast Type",
-    (
-        "Maximum Temperature (TMAX)",
-        "Minimum Temperature (TMIN)",
-        "Precipitation (PRCP)",
-        "Snowfall (SNOW)",
-        "Snow Depth (SNWD)",
-    ),
-)
+        if not selected_station:
+            st.error("Please select a station")
+            st.stop()
 
-
-# # Display a map of stations from the inventory data
-# st.markdown("### Station Map")
-
-# # Load inventory data
-# df_inventory = get_inventory_data()
-# if df_inventory is not None and not df_inventory.empty:
-#     # Ensure latitude and longitude columns are present
-#     if "latitude" in df_inventory.columns and "longitude" in df_inventory.columns:
-#         # Map forecast type to colors
-#         color_map = {
-#             "TMAX": "red",
-#             "TMIN": "blue",
-#             "PRCP": "green",
-#             "SNOW": "purple",
-#             "SNWD": "orange",
-#         }
-#         df_inventory["color"] = df_inventory["element"].map(color_map)
-
-#         # Display map
-#         st.map(df_inventory[["latitude", "longitude"]])
-
-#         # Add legend
-#         st.markdown("#### Legend")
-#         for element, color in color_map.items():
-#             st.markdown(f"<span style='color:{color};'>⬤</span> {element}", unsafe_allow_html=True)
-
-#         # Allow station selection by clicking
-#         selected_station = st.selectbox(
-#             "Select a Station by ID",
-#             df_inventory["id"].unique(),
-#             format_func=lambda x: f"{x} ({df_inventory[df_inventory['id'] == x]['element'].iloc[0]})"
-#         )
-#     else:
-#         st.error("Inventory data is missing latitude or longitude columns.")
-# else:
-#     st.error("Failed to load inventory data.")
-########################################
-# Display Backend Data
-
-st.markdown("## Backend Data Integration (For Demo Purposes)")
-st.write("Data sets parsed from NOAA through backend functions:")
-
-# Countries Data
-if st.button("Load Countries Data"):
-    df_countries = get_countries_data()
-    if df_countries is not None:
-        st.write("### Countries Data", df_countries)
-    else:
-        st.error("Failed to load countries data.")
-
-# Inventory Data
-if st.button("Load Inventory Data"):
-    df_inventory = get_inventory_data()
-    if df_inventory is not None:
-        st.write("### Inventory Data", df_inventory)
-    else:
-        st.error("Failed to load inventory data.")
-
-# States Data
-if st.button("Load States Data"):
-    df_states = get_states_data()
-    if df_states is not None:
-        st.write("### States Data", df_states)
-    else:
-        st.error("Failed to load states data.")
-
-# Stations Data (filtered by selected state)
-if st.button("Load Stations Data"):
-    df_stations = get_stations_data()
-    if df_stations is not None:
-        if selected_state_code:
-            df_stations = df_stations[df_stations["STATE"] == selected_state_code]
-        st.write(f"### Stations Data for {selected_state}", df_stations)
-    else:
-        st.error("Failed to load stations data.")
-
-# Daily Data for a Selected Station
-st.markdown("### Daily Data for a Selected Station")
-
-# Fetch stations data
-df_stations = get_stations_data()
-if df_stations is not None:
-    # If a state is selected, filter the stations by state code
-    if selected_state_code:
-        df_stations = df_stations[df_stations["STATE"] == selected_state_code]
-    
-    if not df_stations.empty:
-        # Create dropdown options that combine Station ID with its NAME (location info)
-        station_options = df_stations.apply(lambda row: f"{row['ID']} - {row['NAME']}", axis=1).tolist()
-        selected_station = st.selectbox("Select a Station", station_options)
-    
-        if st.button("Load Station Daily Data"):
-            # The station ID is the first part of the selected string
-            station_id = selected_station.split(" - ")[0].strip()
-            if not station_id:
-                st.error("Please select a valid station.")
-            else:
-                df_station = get_station_data(station_id)
-                if df_station is not None and not df_station.empty:
-                    st.write(f"### Daily Data for Station {station_id}", df_station)
-                else:
-                    st.error(f"No daily data found for station {station_id} or an error occurred.")
-    else:
-        st.error("No stations available for the selected state.")
-else:
-    st.error("Failed to load stations data.")
-
-
-########################################
-# Forecast Simulation Section
-st.markdown("### Visualize Station Data")
-
-if df_stations is not None and not df_stations.empty:
-    if selected_station:
         station_id = selected_station.split(" - ")[0].strip()
-        df_station = get_station_data(station_id)
-        if df_station is not None and not df_station.empty:
-            # Filter data for visualization
-            df_station = df_station[df_station['element'] == 'TMAX']
-            cleaned_df_station = time_series.clean_data(df_station)
-            st.line_chart(cleaned_df_station, y='value', use_container_width=True)
+
+        # Load station data
+        with st.spinner("Loading station data..."):
+            df_station = load_station_data(station_id)
+            if df_station is None or df_station.empty:
+                st.error("Failed to load station data. Please try again.")
+                st.stop()
+
+            st.session_state.current_station = station_id
+            st.session_state.current_data = df_station
+
+            # Get available elements for this station
+            available_elements = get_available_elements(df_station)
+            st.session_state.available_elements = available_elements
+
+            if not available_elements:
+                st.error("No forecast data available for this station")
+                st.stop()
+
+            # Forecast type selection
+            forecast_type = st.radio(
+                "Forecast Type",
+                available_elements,
+            )
+
+    # Main content area
+    if forecast_type:
+        # Filter data based on forecast type
+        element_map = {
+            "Maximum Temperature (TMAX)": "TMAX",
+            "Minimum Temperature (TMIN)": "TMIN",
+            "Precipitation (PRCP)": "PRCP"
+        }
+
+        selected_element = element_map.get(forecast_type, "TMAX")
+        df_station_filtered = df_station[df_station['element'] == selected_element]
+
+        if df_station_filtered.empty:
+            st.error(f"No data available for {selected_element} at this station.")
+            st.stop()
+
+        # Clean and prepare data
+        cleaned_df_station = time_series.clean_data(df_station_filtered)
+        if cleaned_df_station is None or cleaned_df_station.empty:
+            st.error("Failed to process station data.")
+            st.stop()
+
+        # Display station info
+        st.info(f"Station: {station_id} - {len(df_station_filtered)} data points for {selected_element}")
+
+        # Prepare chart data
+        chart_data = cleaned_df_station.copy()
+        
+        # Customize chart based on forecast type
+        if selected_element == "TMAX" or selected_element == "TMIN":
+            # Temperature charts (in tenths of degrees Celsius)
+            # Convert to actual temperature values for better readability
+            chart_data['value'] = chart_data['value'] / 10.0
+            y_axis_label = "Temperature (°C)"
+            y_axis_range = [
+                chart_data['value'].min() - 5, 
+                chart_data['value'].max() + 5
+            ]
+        elif selected_element == "PRCP":
+            # Precipitation (in tenths of millimeters)
+            # Convert to millimeters for better readability
+            chart_data['value'] = chart_data['value'] / 10.0
+            y_axis_label = "Precipitation (mm)"
+            y_axis_range = [0, chart_data['value'].max() * 1.2]
         else:
-            st.error("Failed to fetch or process station data.")
-    else:
-        st.error("Please select a station to visualize data.")
-else:
-    st.error("No stations data available.")
+            # Default case
+            y_axis_label = f"{selected_element} Value"
+            y_axis_range = None
+        
+        # Display chart with custom configuration
+        st.subheader(f"{forecast_type} Trends")
+        
+        # Use plotly for more control over the chart
+        import plotly.express as px
+        import plotly.graph_objects as go
+        
+        # Create a figure with custom y-axis range
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=chart_data.index,
+            y=chart_data['value'],
+            mode='lines',
+            name=selected_element,
+            line=dict(color='#1f77b4', width=2)
+        ))
+        
+        # Set y-axis range if specified
+        if y_axis_range:
+            fig.update_layout(yaxis_range=y_axis_range)
+        
+        # Update layout for better appearance
+        fig.update_layout(
+            title=f"{forecast_type} Over Time",
+            xaxis_title="Date",
+            yaxis_title=y_axis_label,
+            template="plotly_white",
+            height=400,
+            margin=dict(l=50, r=50, t=50, b=50)
+        )
+        
+        # Display the chart
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Display statistics with appropriate units
+        st.subheader("Statistics")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if selected_element in ["TMAX", "TMIN"]:
+                st.metric(
+                    f"Average {selected_element}",
+                    f"{chart_data['value'].mean():.1f}°C",
+                    f"{chart_data['value'].mean() - chart_data['value'].iloc[0]:.1f}°C"
+                )
+            elif selected_element == "PRCP":
+                st.metric(
+                    f"Average {selected_element}",
+                    f"{chart_data['value'].mean():.1f} mm",
+                    f"{chart_data['value'].mean() - chart_data['value'].iloc[0]:.1f} mm"
+                )
+            else:
+                st.metric(
+                    f"Average {selected_element}",
+                    f"{chart_data['value'].mean():.1f}",
+                    f"{chart_data['value'].mean() - chart_data['value'].iloc[0]:.1f}"
+                )
+        
+        with col2:
+            if selected_element in ["TMAX", "TMIN"]:
+                st.metric(
+                    f"Maximum {selected_element}",
+                    f"{chart_data['value'].max():.1f}°C",
+                    f"{chart_data['value'].max() - chart_data['value'].mean():.1f}°C"
+                )
+            elif selected_element == "PRCP":
+                st.metric(
+                    f"Maximum {selected_element}",
+                    f"{chart_data['value'].max():.1f} mm",
+                    f"{chart_data['value'].max() - chart_data['value'].mean():.1f} mm"
+                )
+            else:
+                st.metric(
+                    f"Maximum {selected_element}",
+                    f"{chart_data['value'].max():.1f}",
+                    f"{chart_data['value'].max() - chart_data['value'].mean():.1f}"
+                )
+        
+        with col3:
+            if selected_element in ["TMAX", "TMIN"]:
+                st.metric(
+                    f"Minimum {selected_element}",
+                    f"{chart_data['value'].min():.1f}°C",
+                    f"{chart_data['value'].min() - chart_data['value'].mean():.1f}°C"
+                )
+            elif selected_element == "PRCP":
+                st.metric(
+                    f"Minimum {selected_element}",
+                    f"{chart_data['value'].min():.1f} mm",
+                    f"{chart_data['value'].min() - chart_data['value'].mean():.1f} mm"
+                )
+            else:
+                st.metric(
+                    f"Minimum {selected_element}",
+                    f"{chart_data['value'].min():.1f}",
+                    f"{chart_data['value'].min() - chart_data['value'].mean():.1f}"
+                )
+        
+        # Generate predictions
+        try:
+            st.write("Attempting to generate predictions...")
+            # Apply the same unit conversion to predictions if needed
+            predictions = time_series.predict_time_series(cleaned_df_station, n_periods=time_period)
+            
+            if predictions is not None:
+                st.write("Predictions generated successfully!")
+                # Convert predictions to the same scale as the chart data
+                if selected_element in ["TMAX", "TMIN"]:
+                    predictions = predictions / 10.0
+                elif selected_element == "PRCP":
+                    predictions = predictions / 10.0
+                
+                st.subheader(f"Predictions for {selected_element} (Next {time_period} Years)")
+                
+                # Create prediction chart with plotly
+                pred_fig = go.Figure()
+                
+                # Add historical data
+                pred_fig.add_trace(go.Scatter(
+                    x=chart_data.index,
+                    y=chart_data['value'],
+                    mode='lines',
+                    name='Historical',
+                    line=dict(color='#1f77b4', width=2)
+                ))
+                
+                # Add prediction data
+                pred_fig.add_trace(go.Scatter(
+                    x=predictions.index,
+                    y=predictions,
+                    mode='lines',
+                    name='Prediction',
+                    line=dict(color='#ff7f0e', width=2, dash='dash')
+                ))
+                
+                # Set y-axis range if specified
+                if y_axis_range:
+                    pred_fig.update_layout(yaxis_range=y_axis_range)
+                
+                # Update layout for better appearance
+                pred_fig.update_layout(
+                    title=f"{forecast_type} Predictions",
+                    xaxis_title="Date",
+                    yaxis_title=y_axis_label,
+                    template="plotly_white",
+                    height=400,
+                    margin=dict(l=50, r=50, t=50, b=50)
+                )
+                
+                # Display the prediction chart
+                st.plotly_chart(pred_fig, use_container_width=True)
+                
+                st.subheader("Prediction Statistics")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if selected_element in ["TMAX", "TMIN"]:
+                        st.metric(
+                            "Predicted Average",
+                            f"{predictions.mean():.1f}°C",
+                            f"{predictions.mean() - chart_data['value'].mean():.1f}°C"
+                        )
+                    elif selected_element == "PRCP":
+                        st.metric(
+                            "Predicted Average",
+                            f"{predictions.mean():.1f} mm",
+                            f"{predictions.mean() - chart_data['value'].mean():.1f} mm"
+                        )
+                    else:
+                        st.metric(
+                            "Predicted Average",
+                            f"{predictions.mean():.1f}",
+                            f"{predictions.mean() - chart_data['value'].mean():.1f}"
+                        )
+                
+                with col2:
+                    if selected_element in ["TMAX", "TMIN"]:
+                        st.metric(
+                            "Predicted Change",
+                            f"{predictions.iloc[-1] - predictions.iloc[0]:.1f}°C",
+                            "Total Change"
+                        )
+                    elif selected_element == "PRCP":
+                        st.metric(
+                            "Predicted Change",
+                            f"{predictions.iloc[-1] - predictions.iloc[0]:.1f} mm",
+                            "Total Change"
+                        )
+                    else:
+                        st.metric(
+                            "Predicted Change",
+                            f"{predictions.iloc[-1] - predictions.iloc[0]:.1f}",
+                            "Total Change"
+                        )
+            else:
+                st.write("Predictions returned None. Check the time_series.py file for errors.")
+        except Exception as e:
+            st.error(f"Error generating predictions: {str(e)}")
+            
+        # Display data table
+        st.subheader("Data Table")
+        
+        # Create a more detailed display dataframe
+        display_data = pd.DataFrame()
+        display_data['Date'] = chart_data.index.strftime('%Y-%m-%d')
+        display_data['Value'] = chart_data['value'].values
+        
+        # Add month and year columns for better organization
+        display_data['Year'] = chart_data.index.year
+        display_data['Month'] = chart_data.index.month
+        
+        # Reorder columns for better display
+        display_data = display_data[['Date', 'Year', 'Month', 'Value']]
+        
+        # Add a note about data quality
+        st.info(f"Showing {len(display_data)} data points for {selected_element}")
+        
+        # Apply styling with explicit color gradient
+        styled_df = display_data.style.format({
+            'Value': '{:.2f}'
+        })
+        
+        # Apply background gradient to the Value column
+        styled_df = styled_df.background_gradient(
+            cmap='Blues',
+            subset=['Value'],
+            vmin=display_data['Value'].min(),
+            vmax=display_data['Value'].max()
+        )
+        
+        # Display the styled dataframe
+        st.dataframe(styled_df, height=300, use_container_width=True)
 
-
-# Generate predictions for the next 12 months using the time series model
-if df_station is not None and not df_station.empty:
-    try:
-        # Clean and prepare the data for the time series model
-        cleaned_df_station = time_series.clean_data(df_station)
-        predictions = time_series.predict_time_series(cleaned_df_station)
-
-        # Create a DataFrame for the predictions
-        prediction_months = pd.date_range(start=cleaned_df_station.index[-1], periods=12, freq='M')
-        prediction_df = pd.DataFrame({"Month": prediction_months, "Predicted Value": predictions}).set_index("Month")
-
-        # Plot the predictions
-        st.markdown("### Predictions for the Next 12 Months")
-        st.line_chart(prediction_df, use_container_width=True)
-    except Exception as e:
-        st.error(f"Error generating predictions: {e}")
-else:
-    st.error("No station data available for predictions.")
-
-
-# Experimental feature meant to compare actual values with our predicted values, not completed yet!
-# Compute dynamic Average Temperature from the selected station's data (TMAX)
-# avg_temp = "N/A"  # Default value in case data is missing
-# if df_station is not None and not df_station.empty:
-# Filter data for TMAX measurements
-#    temp_data = df_station[df_station['element'] == 'TMAX']
-#    if not temp_data.empty:
-#        # Choose the most recent year available
-#        most_recent_year = temp_data['year'].max()
-#        recent_temp_data = temp_data[temp_data['year'] == most_recent_year]
-#        # Calculate the average temperature and convert from tenths of °C to °C
-#        avg_temp_value = recent_temp_data['value'].mean() / 10
-#        avg_temp = round(avg_temp_value, 2)
-
-# st.markdown("## Regional Climate Analysis")
-# st.markdown(f"Analysis based on selected station: {selected_station}")
-# results = pd.DataFrame({
-#    "Metric": ["Average Temperature", "Flood Risk", "CO2 Levels"],
-#    "Current": [avg_temp, 1.2, 410],
-#    "Predicted": [
-#        chart_data[y_label].iloc[-1] if forecast_type in ["Temperature", "Combined"] else 16,
-#        chart_data[y_label].iloc[-1] if forecast_type == "Flood Risk" else 1.5,
-#        chart_data[y_label].iloc[-1] if forecast_type == "CO2 Levels" else 420
-#    ]
-# })
-# st.table(results)
-
-# st.markdown("### Future Projection Comparison")
-# if forecast_type == "Combined":
-#     metrics = ["Temperature", "Flood Risk", "CO2 Levels"]
-#     projections = [chart_data[y_label].iloc[-1] + np.random.uniform(-1, 1) for _ in metrics]
-#     comparison_df = pd.DataFrame({
-#         "Metric": metrics,
-#         "Projection": projections
-#     }).set_index("Metric")
-#     st.bar_chart(comparison_df)
-# else:
-#     st.markdown("Select 'Combined' forecast type in the sidebar to see a multi-metric comparison chart.")
-
-st.markdown("### About NeuralClimate")
-st.markdown("""
-NeuralClimate integrates historical climate data and sophisticated statistical modeling
-to deliver insightful projections. This version directly leverages backend functions for data integration,
-including state-based filtering of station data.
-""")
+with tab2:
+    # About Section
+    st.title("About NeuralClimate")
+    st.write("""
+    NeuralClimate delivers advanced climate data analysis by directly integrating backend functions.
+    This version uses real data from NOAA datasets and displays all processed data, with location 
+    selection based on U.S. states.
+    
+    NeuralClimate integrates historical climate data and sophisticated statistical modeling
+    to deliver insightful projections. This version directly leverages backend functions for data integration,
+    including state-based filtering of station data.
+    """)
