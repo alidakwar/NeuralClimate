@@ -1,6 +1,15 @@
+import os
+import sys
+from pathlib import Path
+
+# Add the parent directory to the Python path
+current_dir = Path(__file__).resolve().parent
+sys.path.append(str(current_dir))
+
 import pandas as pd
 import numpy as np
-from machine_learning import ghcnd_fetch as fetch
+from datetime import datetime, timedelta
+import ghcnd_fetch as fetch
 from pmdarima import auto_arima
 from sklearn.metrics import mean_squared_error
 

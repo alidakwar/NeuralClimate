@@ -1,7 +1,14 @@
-import requests
-import machine_learning.ghcnd_parse as ghcnd_parse
-import csv
 import os
+import sys
+from pathlib import Path
+
+# Add the parent directory to the Python path
+current_dir = Path(__file__).resolve().parent
+sys.path.append(str(current_dir))
+
+import requests
+import ghcnd_parse
+import csv
 import pandas as pd
 from io import StringIO
 

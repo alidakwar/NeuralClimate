@@ -1,8 +1,20 @@
+import os
+import sys
+from pathlib import Path
+
+# Add the scripts directory to the Python path
+scripts_dir = Path(__file__).resolve().parent / "scripts"
+sys.path.append(str(scripts_dir))
+
+# Define data directory paths
+DATA_DIR = Path(__file__).resolve().parent / "data"
+COUNTIES_DIR = DATA_DIR / "counties"
+STATIONS_DIR = DATA_DIR / "stations"
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import tempfile
-import os
 import requests
 from datetime import datetime, timedelta
 import folium
@@ -17,9 +29,9 @@ import plotly.express as px
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 # Import backend modules
-import machine_learning.ghcnd_fetch as fetch
-import machine_learning.ghcnd_parse
-import machine_learning.time_series as time_series
+from ml.ghcnd_fetch import get_ghcnd_stations, get_ghcnd_data_by_station
+from ml.ghcnd_parse import dly_to_dataframe_from_lines
+from ml.time_series import clean_data, predict_time_series, validate_time_series_data
 
 
 def get_available_elements(df_station, main_only=False):
@@ -60,11 +72,11 @@ def load_county_boundaries():
         import json
         
         # Load the GeoJSON file
-        with open("machine_learning/data/counties/counties.geojson", 'r') as f:
+        with open(COUNTIES_DIR / "counties.geojson", 'r') as f:
             geojson_data = json.load(f)
         
         # Load the CSV file with additional county information
-        county_info = pd.read_csv("machine_learning/data/counties/counties.csv")
+        county_info = pd.read_csv(COUNTIES_DIR / "counties.csv")
         
         # Create a dictionary to store the merged data
         features = []
@@ -101,7 +113,7 @@ def get_stations_in_county(county_name):
         
         try:
             # Read from the metadata file
-            stations_df = pd.read_csv("data/dallas_stations_metadata.csv")
+            stations_df = pd.read_csv(DATA_DIR / "dallas_stations_metadata.csv")
             return stations_df
         except Exception as e:
             st.error(f"Error reading Dallas stations metadata: {str(e)}")
@@ -173,7 +185,7 @@ def create_county_map(selected_station_id=None):
 def load_dallas_data():
     """Load Dallas County station data from CSV."""
     try:
-        return pd.read_csv("data/dallas_stations_data.csv")
+        return pd.read_csv(DATA_DIR / "dallas_stations_data.csv")
     except Exception as e:
         st.error(f"Error loading Dallas data: {str(e)}")
         return None
@@ -438,7 +450,7 @@ def main():
         @st.cache_data(show_spinner=True)
         def load_dallas_stations():
             try:
-                return pd.read_csv("data/dallas_stations_metadata.csv")
+                return pd.read_csv(DATA_DIR / "dallas_stations_metadata.csv")
             except Exception as e:
                 st.error(f"Error loading Dallas stations: {str(e)}")
                 return None
@@ -449,7 +461,7 @@ def main():
             try:
                 # Try to load from local file first
                 try:
-                    data = pd.read_csv(f"data/stations/{station_id}_data.csv")
+                    data = pd.read_csv(STATIONS_DIR / f"{station_id}_data.csv")
                     if data is None or data.empty:
                         st.error(f"No data found for station {station_id}")
                         return None
@@ -582,11 +594,10 @@ def main():
             st.stop()
         
         # Clean and prepare data
-        cleaned_df = time_series.clean_data(df_filtered)
+        cleaned_df = clean_data(df_filtered)
         if cleaned_df is None or cleaned_df.empty:
             st.error("Failed to process data")
             st.stop()
-        
         
         # Display the forecast plot
         st.subheader(f"{forecast_type} Trends")
@@ -602,7 +613,7 @@ def main():
             st.stop()
             
         # Validate the data before making predictions
-        if not time_series.validate_time_series_data(cleaned_df, station_id, selected_element):
+        if not validate_time_series_data(cleaned_df, station_id, selected_element):
             st.error("The data for this station and element is not suitable for prediction. Please select a different station or element.")
             st.stop()
         
