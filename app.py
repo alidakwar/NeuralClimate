@@ -253,86 +253,95 @@ def create_forecast_plot(df, element_type, time_period):
     
     return fig
 
-def display_statistics(df, element_type):
+def display_statistics(df, predictions, element_type):
     """Display statistics for the given data and element type."""
     col1, col2, col3 = st.columns(3)
+    
+    # Calculate rate of change in average per year
+    if len(df) > 1:
+        # Get first and last year's average
+        first_year = df.index[0].year
+        last_year = df.index[-1].year
+        first_year_avg = df[df.index.year == first_year]['value'].mean()
+        last_year_avg = df[df.index.year == last_year]['value'].mean()
+        
+        # Calculate rate of change per year
+        years_diff = last_year - first_year
+        if years_diff > 0:
+            rate_per_year = float((last_year_avg - first_year_avg) / years_diff)
+        else:
+            rate_per_year = 0.0
+    else:
+        rate_per_year = 0.0
+    
+    # Calculate max and min
+    max_value = float(df['value'].max())
+    min_value = float(df['value'].min())
     
     with col1:
         if element_type in ["TMAX", "TMIN"]:
             st.metric(
-                f"Average {element_type}",
-                f"{df['value'].mean():.2f}°C",
-                f"{df['value'].mean() - df['value'].iloc[0]:.2f}°C"
+                f"Rate of Change per Year",
+                f"{rate_per_year:+.2f}°C"
             )
         elif element_type == "PRCP":
             st.metric(
-                f"Average {element_type}",
-                f"{df['value'].mean():.2f} mm",
-                f"{df['value'].mean() - df['value'].iloc[0]:.2f} mm"
+                f"Rate of Change per Year",
+                f"{rate_per_year:+.2f} mm"
             )
         elif element_type == "SNOW":
             st.metric(
-                f"Average {element_type}",
-                f"{df['value'].mean():.2f} mm",
-                f"{df['value'].mean() - df['value'].iloc[0]:.2f} mm"
+                f"Rate of Change per Year",
+                f"{rate_per_year:+.2f} mm"
             )
         else:
             st.metric(
-                f"Average {element_type}",
-                f"{df['value'].mean():.2f}",
-                f"{df['value'].mean() - df['value'].iloc[0]:.2f}"
+                f"Rate of Change per Year",
+                f"{rate_per_year:+.2f}"
             )
     
     with col2:
         if element_type in ["TMAX", "TMIN"]:
             st.metric(
                 f"Maximum {element_type}",
-                f"{df['value'].max():.2f}°C",
-                f"{df['value'].max() - df['value'].mean():.2f}°C"
+                f"{max_value:.1f}°C"
             )
         elif element_type == "PRCP":
             st.metric(
                 f"Maximum {element_type}",
-                f"{df['value'].max():.2f} mm",
-                f"{df['value'].max() - df['value'].mean():.2f} mm"
+                f"{max_value:.1f} mm"
             )
         elif element_type == "SNOW":
             st.metric(
                 f"Maximum {element_type}",
-                f"{df['value'].max():.2f} mm",
-                f"{df['value'].max() - df['value'].mean():.2f} mm"
+                f"{max_value:.1f} mm"
             )
         else:
             st.metric(
                 f"Maximum {element_type}",
-                f"{df['value'].max():.2f}",
-                f"{df['value'].max() - df['value'].mean():.2f}"
+                f"{max_value:.1f}"
             )
     
     with col3:
         if element_type in ["TMAX", "TMIN"]:
             st.metric(
                 f"Minimum {element_type}",
-                f"{df['value'].min():.2f}°C",
-                f"{df['value'].min() - df['value'].mean():.2f}°C"
+                f"{min_value:.1f}°C"
             )
         elif element_type == "PRCP":
             st.metric(
                 f"Minimum {element_type}",
-                f"{df['value'].min():.2f} mm",
-                f"{df['value'].min() - df['value'].mean():.2f} mm"
+                f"{min_value:.1f} mm"
             )
         elif element_type == "SNOW":
             st.metric(
                 f"Minimum {element_type}",
-                f"{df['value'].min():.2f} mm",
-                f"{df['value'].min() - df['value'].mean():.2f} mm"
+                f"{min_value:.1f} mm"
             )
         else:
             st.metric(
                 f"Minimum {element_type}",
-                f"{df['value'].min():.2f}",
-                f"{df['value'].min() - df['value'].mean():.2f}"
+                f"{min_value:.1f}"
             )
 
 def display_predictions(cleaned_df, predictions, element_type, forecast_type, y_axis_label):
@@ -380,32 +389,129 @@ def display_predictions(cleaned_df, predictions, element_type, forecast_type, y_
         # Display the prediction chart
         st.plotly_chart(pred_fig, use_container_width=True)
         
-        # Calculate sMAPE for the overlapping period
-        last_historical = recent_data['value'].iloc[-1]
-        first_prediction = predictions.iloc[0]
-        smape = 200 * abs(first_prediction - last_historical) / (abs(last_historical) + abs(first_prediction))
-        
-        # Display prediction statistics
-        st.subheader("Prediction Statistics")
+        # Calculate statistics for forecasted data
         col1, col2, col3 = st.columns(3)
+        
+        # Calculate rate of change in average per year for forecasted data
+        if len(predictions) > 1:
+            first_year = predictions.index[0].year
+            last_year = predictions.index[-1].year
+            first_year_avg = predictions[predictions.index.year == first_year].mean()
+            last_year_avg = predictions[predictions.index.year == last_year].mean()
+            
+            years_diff = last_year - first_year
+            if years_diff > 0:
+                forecast_rate_per_year = float((last_year_avg - first_year_avg) / years_diff)
+            else:
+                forecast_rate_per_year = 0.0
+        else:
+            forecast_rate_per_year = 0.0
+        
+        # Calculate historical rate of change in average per year
+        if len(cleaned_df) > 1:
+            first_year = cleaned_df.index[0].year
+            last_year = cleaned_df.index[-1].year
+            first_year_avg = cleaned_df[cleaned_df.index.year == first_year]['value'].mean()
+            last_year_avg = cleaned_df[cleaned_df.index.year == last_year]['value'].mean()
+            
+            years_diff = last_year - first_year
+            if years_diff > 0:
+                historical_rate_per_year = float((last_year_avg - first_year_avg) / years_diff)
+            else:
+                historical_rate_per_year = 0.0
+        else:
+            historical_rate_per_year = 0.0
+        
+        # Calculate max and min for forecasted data
+        forecast_max = float(predictions.max())
+        forecast_min = float(predictions.min())
+        
+        # Get historical max and min
+        historical_max = float(cleaned_df['value'].max())
+        historical_min = float(cleaned_df['value'].min())
+        
+        # Calculate changes
+        rate_change = forecast_rate_per_year - historical_rate_per_year
+        max_change = forecast_max - historical_max
+        min_change = forecast_min - historical_min
+        
         with col1:
-            st.metric(
-                "Predicted Average",
-                f"{predictions.mean():.2f}",
-                f"{predictions.mean() - recent_data['value'].mean():.2f}"
-            )
+            if element_type in ["TMAX", "TMIN"]:
+                st.metric(
+                    f"Forecasted Rate of Change per Year",
+                    f"{forecast_rate_per_year:+.2f}°C",
+                    f"{rate_change:+.2f}°C from historical"
+                )
+            elif element_type == "PRCP":
+                st.metric(
+                    f"Forecasted Rate of Change per Year",
+                    f"{forecast_rate_per_year:+.2f} mm",
+                    f"{rate_change:+.2f} mm from historical"
+                )
+            elif element_type == "SNOW":
+                st.metric(
+                    f"Forecasted Rate of Change per Year",
+                    f"{forecast_rate_per_year:+.2f} mm",
+                    f"{rate_change:+.2f} mm from historical"
+                )
+            else:
+                st.metric(
+                    f"Forecasted Rate of Change per Year",
+                    f"{forecast_rate_per_year:+.2f}",
+                    f"{rate_change:+.2f} from historical"
+                )
+        
         with col2:
-            st.metric(
-                "Predicted Change",
-                f"{predictions.iloc[-1] - predictions.iloc[0]:.2f}",
-                "Total Change"
-            )
+            if element_type in ["TMAX", "TMIN"]:
+                st.metric(
+                    f"Forecasted Maximum {element_type}",
+                    f"{forecast_max:.1f}°C",
+                    f"{max_change:+.1f}°C from historical"
+                )
+            elif element_type == "PRCP":
+                st.metric(
+                    f"Forecasted Maximum {element_type}",
+                    f"{forecast_max:.1f} mm",
+                    f"{max_change:+.1f} mm from historical"
+                )
+            elif element_type == "SNOW":
+                st.metric(
+                    f"Forecasted Maximum {element_type}",
+                    f"{forecast_max:.1f} mm",
+                    f"{max_change:+.1f} mm from historical"
+                )
+            else:
+                st.metric(
+                    f"Forecasted Maximum {element_type}",
+                    f"{forecast_max:.1f}",
+                    f"{max_change:+.1f} from historical"
+                )
+        
         with col3:
-            st.metric(
-                "Transition sMAPE",
-                f"{smape:.2f}%",
-                "Forecast Accuracy"
-            )
+            if element_type in ["TMAX", "TMIN"]:
+                st.metric(
+                    f"Forecasted Minimum {element_type}",
+                    f"{forecast_min:.1f}°C",
+                    f"{min_change:+.1f}°C from historical"
+                )
+            elif element_type == "PRCP":
+                st.metric(
+                    f"Forecasted Minimum {element_type}",
+                    f"{forecast_min:.1f} mm",
+                    f"{min_change:+.1f} mm from historical"
+                )
+            elif element_type == "SNOW":
+                st.metric(
+                    f"Forecasted Minimum {element_type}",
+                    f"{forecast_min:.1f} mm",
+                    f"{min_change:+.1f} mm from historical"
+                )
+            else:
+                st.metric(
+                    f"Forecasted Minimum {element_type}",
+                    f"{forecast_min:.1f}",
+                    f"{min_change:+.1f} from historical"
+                )
     else:
         st.warning("No predictions were generated")
 
@@ -439,9 +545,9 @@ def main():
 
         # Time period selection
         time_period = st.slider(
-            "Select Time Period (Months from now)",
+            "Select Time Period (Years from now)",
             min_value=1,
-            max_value=100,
+            max_value=25,
             value=10,
             key="time_period"
         )
@@ -606,7 +712,7 @@ def main():
         
         # Display statistics
         st.subheader("Statistics")
-        display_statistics(cleaned_df, selected_element)
+        display_statistics(cleaned_df, cleaned_df, selected_element)
 
         # Check if 'ENTIRE_COUNTY' is the selected option and element is TMAX or TMIN
         if station_id != "ENTIRE_COUNTY" or selected_element not in ["TMAX", "TMIN"]:
@@ -628,7 +734,7 @@ def main():
                     st.stop()
                 
                 # Convert time_period to integer and ensure it's positive
-                n_periods = max(1, int(time_period))
+                n_periods = max(1, int(time_period)) * 12
                 
                 # Generate predictions using the loaded model
                 predictions_array = model.predict(n_periods=n_periods)
@@ -653,6 +759,7 @@ def main():
                 # Display predictions
                 st.subheader("Model Predictions")
                 display_predictions(cleaned_df, predictions, selected_element, forecast_type, cleaned_df['value'].mean())
+                
             except Exception as e:
                 st.error(f"Error making predictions with loaded model: {str(e)}")
         else:
