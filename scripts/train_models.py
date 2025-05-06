@@ -12,7 +12,7 @@ STATIONS_DIR = DATA_DIR / "stations"
 MODELS_DIR = current_dir.parent / "models"
 
 # Enable dry-run mode
-DRY_RUN = True
+DRY_RUN = False
 
 import pandas as pd
 import numpy as np
@@ -25,17 +25,20 @@ import warnings
 warnings.filterwarnings('ignore')
 
 def calculate_metrics(y_true, y_pred):
-    """Calculate RMSE, sMAPE, and R-squared"""
+    """Calculate RMSE, NRMSE, sMAPE, and R-squared"""
     rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+    # Calculate NRMSE (normalized by mean)
+    nrmse = (rmse / np.mean(y_true)) * 100
     # Calculate sMAPE
     smape = 100 * np.mean(2 * np.abs(y_pred - y_true) / (np.abs(y_true) + np.abs(y_pred)))
     r2 = r2_score(y_true, y_pred)
-    return rmse, smape, r2
+    return rmse, nrmse, smape, r2
 
 def cross_validate_model(model, data, n_splits=5):
     """Perform time series cross-validation"""
     tscv = TimeSeriesSplit(n_splits=n_splits)
     rmse_scores = []
+    nrmse_scores = []
     mape_scores = []
     r2_scores = []
     
@@ -96,12 +99,13 @@ def cross_validate_model(model, data, n_splits=5):
                 y_pred = current_model.predict(n_periods=len(test_data))
             y_true = test_data['y']
         
-        rmse, mape, r2 = calculate_metrics(y_true, y_pred)
+        rmse, nrmse, mape, r2 = calculate_metrics(y_true, y_pred)
         rmse_scores.append(rmse)
+        nrmse_scores.append(nrmse)
         mape_scores.append(mape)
         r2_scores.append(r2)
     
-    return np.mean(rmse_scores), np.mean(mape_scores), np.mean(r2_scores)
+    return np.mean(rmse_scores), np.mean(nrmse_scores), np.mean(mape_scores), np.mean(r2_scores)
 
 def get_available_elements(data):
     """Get unique elements from the data."""
@@ -197,12 +201,12 @@ def build_and_save_model(element, data):
             future1['lag1'] = pd.concat([train_data['lag1'], test_data['lag1']]).reset_index(drop=True)
             future1['lag12'] = pd.concat([train_data['lag12'], test_data['lag12']]).reset_index(drop=True)
             forecast1 = model1.predict(future1)
-            rmse1, mape1, r2_1 = calculate_metrics(test_data['y'].values, forecast1['yhat'][-len(test_data):].values)
-            cv_rmse1, cv_mape1, cv_r2_1 = cross_validate_model(model1, prophet_data)
+            rmse1, nrmse1, mape1, r2_1 = calculate_metrics(test_data['y'].values, forecast1['yhat'][-len(test_data):].values)
+            cv_rmse1, cv_nrmse1, cv_mape1, cv_r2_1 = cross_validate_model(model1, prophet_data)
             models.append(model1)
             model_names.append("Prophet")
-            all_metrics.append((rmse1, mape1, r2_1))
-            cv_metrics.append((cv_rmse1, cv_mape1, cv_r2_1))
+            all_metrics.append((rmse1, nrmse1, mape1, r2_1))
+            cv_metrics.append((cv_rmse1, cv_nrmse1, cv_mape1, cv_r2_1))
             
             # Model 2: Optimized SARIMA
             print(f"\nTraining SARIMA model for {element}...")
@@ -225,12 +229,12 @@ def build_and_save_model(element, data):
                 information_criterion='bic'
             )
             predictions2 = model2.predict(n_periods=len(test_data))
-            rmse2, mape2, r2_2 = calculate_metrics(test_data['y'].values, predictions2)
-            cv_rmse2, cv_mape2, cv_r2_2 = cross_validate_model(model2, prophet_data)
+            rmse2, nrmse2, mape2, r2_2 = calculate_metrics(test_data['y'].values, predictions2)
+            cv_rmse2, cv_nrmse2, cv_mape2, cv_r2_2 = cross_validate_model(model2, prophet_data)
             models.append(model2)
             model_names.append("SARIMA")
-            all_metrics.append((rmse2, mape2, r2_2))
-            cv_metrics.append((cv_rmse2, cv_mape2, cv_r2_2))
+            all_metrics.append((rmse2, nrmse2, mape2, r2_2))
+            cv_metrics.append((cv_rmse2, cv_nrmse2, cv_mape2, cv_r2_2))
             
             # Find best model based on RMSE
             rmse_scores = np.array([m[0] for m in all_metrics])
@@ -240,11 +244,13 @@ def build_and_save_model(element, data):
             metrics_df = pd.DataFrame({
                 'Model': model_names,
                 'RMSE': [m[0] for m in all_metrics],
-                'MAPE': [m[1] for m in all_metrics],
-                'R-squared': [m[2] for m in all_metrics],
+                'NRMSE (%)': [m[1] for m in all_metrics],
+                'MAPE': [m[2] for m in all_metrics],
+                'R-squared': [m[3] for m in all_metrics],
                 'CV_RMSE': [m[0] for m in cv_metrics],
-                'CV_MAPE': [m[1] for m in cv_metrics],
-                'CV_R-squared': [m[2] for m in cv_metrics]
+                'CV_NRMSE (%)': [m[1] for m in cv_metrics],
+                'CV_MAPE': [m[2] for m in cv_metrics],
+                'CV_R-squared': [m[3] for m in cv_metrics]
             })
             
             metrics_file = os.path.join(model_dir, f"{element}_metrics.csv")
@@ -256,12 +262,14 @@ def build_and_save_model(element, data):
             print(f"\nBest model: {model_names[best_model_idx]}")
             print(f"Best model metrics:")
             print(f"RMSE: {all_metrics[best_model_idx][0]:.2f}")
-            print(f"MAPE: {all_metrics[best_model_idx][1]:.2f}%")
-            print(f"R-squared: {all_metrics[best_model_idx][2]:.4f}")
+            print(f"NRMSE: {all_metrics[best_model_idx][1]:.2f}%")
+            print(f"MAPE: {all_metrics[best_model_idx][2]:.2f}%")
+            print(f"R-squared: {all_metrics[best_model_idx][3]:.4f}")
             print(f"\nCross-validation metrics:")
             print(f"CV RMSE: {cv_metrics[best_model_idx][0]:.2f}")
-            print(f"CV MAPE: {cv_metrics[best_model_idx][1]:.2f}%")
-            print(f"CV R-squared: {cv_metrics[best_model_idx][2]:.4f}")
+            print(f"CV NRMSE: {cv_metrics[best_model_idx][1]:.2f}%")
+            print(f"CV MAPE: {cv_metrics[best_model_idx][2]:.2f}%")
+            print(f"CV R-squared: {cv_metrics[best_model_idx][3]:.4f}")
             
             # Save the best model with compression
             best_model = models[best_model_idx]
